@@ -198,6 +198,9 @@ void setup() {
 
   //isInitializerForFanSensor = true;  // comment in if this is the initializer for fan sensors (it should be set to false under global variables in Globals.h)
   
+  // BUG FIX: Force fan sensor mode override (uncomment to enable fan sensor on any ESP32 board)
+  // bool forceFanSensorMode = true;  // UNCOMMENT THIS LINE TO FORCE FAN SENSOR MODE ON ESP32_DEV_BOARD
+  
 
 
 
@@ -262,7 +265,22 @@ void setup() {
   //MAIN xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
   sequenceNumber = originalUnitNumber;
 
-  if (boardType == "ESP32_DEV_BOARD") {         //should be a standard device, not a fan sensor
+  // BUG FIX: Check for force fan sensor mode override
+  bool shouldBeFanSensor = false;
+  #ifdef FORCE_FAN_SENSOR_MODE
+    shouldBeFanSensor = true;
+    Serial.println("FORCE_FAN_SENSOR_MODE: Enabling fan sensor mode");
+  #else
+    // Check for local override (user can uncomment the line above)
+    #ifdef forceFanSensorMode
+      if (forceFanSensorMode) {
+        shouldBeFanSensor = true;
+        Serial.println("Local override: Enabling fan sensor mode on ESP32_DEV_BOARD");
+      }
+    #endif
+  #endif
+  
+  if (boardType == "ESP32_DEV_BOARD" && !shouldBeFanSensor) {         //should be a standard device, not a fan sensor
     setupAndBlinkLED(2, 3);
 
     while(isInitializerForFanSensor == 1) { //infinite loop until user input
@@ -280,7 +298,7 @@ void setup() {
 
 
 
-  } else {                                       //should be a fan sensor
+  } else {                                       //should be a fan sensor OR forced fan sensor mode
     setupAndBlinkLED(15, 4);
     isFanSensor = 1;
     
@@ -290,10 +308,12 @@ void setup() {
     unsigned long listenStart = millis();
     unsigned long listenDuration = 10000; // 10 seconds
 
+    // BUG FIX: Always calibrate microphone to ensure accurate readings
+    calibrateMicrophone(); // Calibrate microphone baseline every time
+    
     // Only do the following if device was manually reset (not from deep sleep wakeup)
     if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER) {
       clearFanHistory();                                            //probably want to comment this out when testing
-      calibrateMicrophone(); // Calibrate microphone baseline
       esp_now_register_recv_cb(tempReceiveCallback);
       broadcastData();
       digitalWrite(15, HIGH); // Turn on LED to indicate listening
@@ -321,7 +341,9 @@ void setup() {
 
 // --------- Loop ---------
 void loop() {
-  if (isFanSensor == 0){
+  // BUG FIX: Use else if structure and add error handling for invalid isFanSensor values
+  if (isFanSensor == 0) {
+    // Temperature sensor mode
     if (millis() - lastSendTime >= waitTime) {
       broadcastData();
       lastSendTime = millis();
@@ -331,21 +353,28 @@ void loop() {
       Serial.print("Next wait time in minutes: ");
       Serial.println(waitTime / 60000);
     }
-  } 
-  if (isFanSensor == 1) {
-  // Read microphone level and set isFanOn based on sound
-  readMicrophoneLevel();
-  
-  updateFanStateHistory(isFanOn); // Update the fan state history array
-  writeFanStateHistoryToEEPROM(); // Write the updated fan state history to EEPROM
-  broadcastFanStateHistory(); // For testing only
-  if(isFanRunningTooMuch(5)){
-    delay(100); // Wait for 100 milliseconds to avoid rapid re-broadcasting
-    broadcastData();
-    delay(500); // Wait for 500 milliseconds before going to sleep
-  }
-  esp_sleep_enable_timer_wakeup(0.25 * 60 * 1000000ULL); // 0.25 minutes in microseconds
-  esp_deep_sleep_start();
+  } else if (isFanSensor == 1) {
+    // Fan sensor mode
+    // Read microphone level and set isFanOn based on sound
+    readMicrophoneLevel();
+    
+    updateFanStateHistory(isFanOn); // Update the fan state history array
+    writeFanStateHistoryToEEPROM(); // Write the updated fan state history to EEPROM
+    broadcastFanStateHistory(); // For testing only
+    if(isFanRunningTooMuch(5)){
+      delay(100); // Wait for 100 milliseconds to avoid rapid re-broadcasting
+      broadcastData();
+      delay(500); // Wait for 500 milliseconds before going to sleep
+    }
+    esp_sleep_enable_timer_wakeup(0.25 * 60 * 1000000ULL); // 0.25 minutes in microseconds
+    esp_deep_sleep_start();
+  } else {
+    // BUG FIX: Handle invalid isFanSensor values
+    Serial.print("ERROR: Invalid isFanSensor value: ");
+    Serial.println(isFanSensor);
+    Serial.println("Resetting to temperature sensor mode (0)");
+    isFanSensor = 0;
+    delay(1000); // Prevent rapid error messages
   }
 }
 

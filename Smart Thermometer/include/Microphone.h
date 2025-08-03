@@ -2,6 +2,7 @@
 #define MICROPHONE_H
 
 #include <Arduino.h>
+#include "Globals.h"  // BUG FIX: Include Globals.h to avoid duplicate isFanOn declaration
 
 // Microphone configuration constants
 #define MIC_PIN 7          // Connect MAX4466 to GPIO7
@@ -12,7 +13,7 @@ extern const int baselineOffset;     // MAIN TUNING VARIABLE: Higher = less sens
 // Global variables
 extern int baselineLevel;           // Will be calibrated in setup()
 extern int hitCount;
-extern int isFanOn;                 // Declare as extern since it's used globally
+// BUG FIX: Removed duplicate extern int isFanOn declaration - now using Globals.h
 
 // Function declarations
 void calibrateMicrophone();
